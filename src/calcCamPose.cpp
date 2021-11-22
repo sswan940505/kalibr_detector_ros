@@ -1,7 +1,6 @@
 #include "calcCamPose.h"
 #include "tic_toc.h"
 
-//std::string file1= "/home/heyijia/ros_ws/apriltag_ws/src/log/kalibra.txt";
 void CamPoseEst::FindTargetCorner(cv::Mat &img_raw,
                       std::vector<cv::Point3f> &p3ds,
                       std::vector<cv::Point2f> &p2ds)
@@ -239,14 +238,6 @@ bool CamPoseEst::EstimatePose(const std::vector<cv::Point3f> &p3ds,
       img_raw, "t_wc: (m) " + std::to_string(Twc(0, 3)) + " " + std::to_string(Twc(1, 3)) + " " + std::to_string(Twc(2, 3)),
       cv::Point2f(50, 30), CV_FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 0, 0));
 
-//  std::vector<cv::Point3f> axis;
-//  std::vector<cv::Point2f> imgpts;
-//  axis.push_back(cv::Point3f(0,0,0));
-//  axis.push_back(cv::Point3f(1,0,0));
-//  axis.push_back(cv::Point3f(0,1,0));
-//  axis.push_back(cv::Point3f(0,0,1));
-//  cv::projectPoints(axis, cv_r, cv_t, K, dist,imgpts);
-
   std::vector<Eigen::Vector3d> axis;
   std::vector<cv::Point2f> imgpts;
   axis.push_back(Eigen::Vector3d(0,0,0));
@@ -256,7 +247,7 @@ bool CamPoseEst::EstimatePose(const std::vector<cv::Point3f> &p3ds,
   for (size_t i = 0; i < axis.size(); ++i) {
     Eigen::Vector2d pt;
     Eigen::Vector3d Pt = Rcw * axis[i] + tcw;
-    cam->spaceToPlane(Pt, pt);   // 三维空间点，加上畸变投影到图像平面
+    cam->spaceToPlane(Pt, pt);
     imgpts.push_back(cv::Point2f(pt.x(),pt.y()));
   }
 
@@ -295,6 +286,42 @@ bool CamPoseEst::calcCamPose(const double &timestamps, const cv::Mat &image,
   {
      cv::imshow("apriltag_detection & camPose_calculation", img_raw);
      cv::waitKey(1);
+    return true;
+  }
+  else
+  {
+    return false;
+  }
+}
+
+
+bool CamPoseEst::calcCamPoseRet(const double &timestamps, const cv::Mat &image,
+                 const CameraPtr &cam, Eigen::Matrix4d &Twc, cv::Mat &image_return)
+{
+  cv::Mat img_raw = image.clone();
+  if (img_raw.channels() == 3)
+  {
+    cv::cvtColor(img_raw, img_raw, CV_BGR2GRAY);
+  }
+
+  std::vector<cv::Point3f> p3ds;
+  std::vector<cv::Point2f> p2ds;
+  // FindTargetCorner(img_raw, CHESS, p3ds, p2ds);
+  FindTargetCorner(img_raw, p3ds, p2ds);
+
+  std::vector<cv::Point2f> un_pts;
+  for (int i = 0, iend = (int)p2ds.size(); i < iend; ++i)
+  {
+    Eigen::Vector2d a(p2ds[i].x, p2ds[i].y);
+    Eigen::Vector3d b;
+    cam->liftProjective(a, b);     // 去图像畸变， 得到归一化图像平面的坐标
+    un_pts.push_back(
+            cv::Point2f(b.x() / b.z(), b.y() / b.z() ));
+  }
+
+  if (EstimatePose(p3ds, un_pts, cam, Twc, img_raw))
+  {
+    image_return = img_raw.clone();
     return true;
   }
   else

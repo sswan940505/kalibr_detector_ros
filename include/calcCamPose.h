@@ -61,6 +61,10 @@ public:
     bool calcCamPose(const double &timestamps, const cv::Mat &image,
                      const CameraPtr &cam, Eigen::Matrix4d &Twc);
 
+    bool calcCamPoseRet(const double &timestamps, const cv::Mat &image,
+                     const CameraPtr &cam, Eigen::Matrix4d &Twc,
+                     cv::Mat &image_return);
+
     CalibrBoardInfo CalBoardInfo_;
 
 };

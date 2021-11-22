@@ -2,17 +2,14 @@
 #include <cv_bridge/cv_bridge.h>
 #include <sensor_msgs/image_encodings.h>
 #include <sensor_msgs/LaserScan.h>
-
-#include <rosbag/bag.h>
-#include <rosbag/view.h>
+#include <geometry_msgs/PoseStamped.h>
 
 #include "../camera_models/include/EquidistantCamera.h"
 #include "../camera_models/include/PinholeCamera.h"
 #include "config.h"
 #include "utilities.h"
-#include "selectScanPoints.h"
 #include "calcCamPose.h"
-#include "LaseCamCalCeres.h"
+
 
 template <typename T>
 T readParam(ros::NodeHandle &n, std::string name)
@@ -111,6 +108,10 @@ kalibraTagDetector::kalibraTagDetector(ros::NodeHandle& nh, ros::NodeHandle& pnh
 
     fsSettings.release();
 
+    image_pub_ = it_.advertise<sensor_msgs::Image>("/kalibr_detector/image",100);
+    pose_pub_ = it_.advertise<geometry_msgs::PoseStamped>("/kalibr_detector/pose",100);
+
+
     image_sub_ = it_.subscribe(img_topic_name,10, &kalibraTagDetector::imageCb, this);
 }
 
@@ -131,53 +132,33 @@ void kalibraTagDetector::imageCb(const sensor_msgs::ImageConstPtr& msg) {
   Eigen::Matrix4d Twc;
   if (cameraptr_ != nullptr)
   {
-    // 直接传原始图像，也可以检测二维码。里面会对坐标去畸变再计算 pose.
-    cv::Mat rectified = cv_ptr->image.clone();
-//    cv::remap(cv_ptr->image, rectified, undist_map1_, undist_map2_, CV_INTER_LINEAR);
-//      cv::imshow("rect",rectified);
-//      cv::waitKey(1);
-    camposecal_.calcCamPose(cv_ptr->header.stamp.toSec(), rectified, cameraptr_, Twc);
-  }
-  else{
-    ROS_ERROR("please select camera model and write in yaml file");
-  }
-}
-
-bool kalibraTagDetector::detect(const sensor_msgs::ImageConstPtr& msg, CamPose& T){
-  cv_bridge::CvImagePtr cv_ptr;
-  try {
-    cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
-  }
-  catch (cv_bridge::Exception &e) {
-    ROS_ERROR("cv_bridge exception: %s", e.what());
-    return false;
-  }
-
-  Eigen::Matrix4d Twc;
-  if (cameraptr_ != nullptr)
-  {
-    // 直接传原始图像，也可以检测二维码。里面会对坐标去畸变再计算 pose.
-    cv::Mat rectified = cv_ptr->image.clone();
-    //cv::remap(cv_ptr->image, rectified, undist_map1_, undist_map2_, CV_INTER_LINEAR);
-    bool success_flag = camposecal_.calcCamPose(cv_ptr->header.stamp.toSec(), rectified, cameraptr_, Twc);
-
-    T.timestamp = cv_ptr->header.stamp.toSec();
-    T.twc = Twc.block(0,3,3,1);
-    Eigen::Matrix3d R = Twc.block(0,0,3,3);
-    Eigen::Quaterniond q(R);
-    T.qwc = q;
-    if(success_flag)
+    cv::Mat rectified;
+    cv::remap(cv_ptr->image, rectified, undist_map1_, undist_map2_, CV_INTER_LINEAR);
+    cv::Mat resultImage;
+    if(camposecal_.calcCamPoseRet(cv_ptr->header.stamp.toSec(), rectified, cameraptr_, Twc,resultImage))
     {
-//        std::cout <<"Tcw:\n"<< Twc.inverse() << std::endl;
+       cv_ptr->image = resultImage.clone();
+       image_pub_.publish(cv_ptr->toImageMsg());
+       geometry_msgs::PoseStamped poseOut;
+       poseOut.header = cv_ptr->header;
+       poseOut.pose.position.x = Twc(0,3);
+       poseOut.pose.position.y = Twc(1,3);
+       poseOut.pose.position.z = Twc(2,3);
+       Eigen::Matrix3d R = Twc.block(0,0,3,3);
+       Eigen::Quaterniond q(R);
+       poseOut.pose.orientation.x = q.x();
+       poseOut.pose.orientation.w = q.w();
+       poseOut.pose.orientation.y = q.y();
+       poseOut.pose.orientation.z = q.z();
+       pose_pub_.publish(poseOut);
     }
-
-    return success_flag;
   }
   else{
     ROS_ERROR("please select camera model and write in yaml file");
-    return false;
   }
+
 }
+
 
 int main(int argc, char **argv){
   ros::init(argc, argv, "CamPoseEstimation");
@@ -188,51 +169,8 @@ int main(int argc, char **argv){
   config_file = readParam<std::string>(pnh, "config_file");
   readParameters(config_file);
 
-  rosbag::Bag bag_input;
-  bag_input.open(bag_path, rosbag::bagmode::Read);
-  std::vector<std::string> topics;
-  topics.push_back(scan_topic_name);
-  topics.push_back(img_topic_name);
-  rosbag::View views(bag_input, rosbag::TopicQuery(topics));
 
   // 初始视觉 pose
   kalibraTagDetector detector(nh, pnh);
-  std::vector < CamPose > tagpose;
-  int i = 0;
-    std::string file = savePath + "apriltag_pose.txt";
-    std::ofstream fC(file.c_str());
-    fC.close();
-    std::ofstream foutC(file.c_str(), std::ios::app);
-    foutC.setf(std::ios::fixed, std::ios::floatfield);
-    foutC.precision(9);
-    for (rosbag::MessageInstance const m: views)
-    {
-      if (m.getTopic() == img_topic_name)
-      {
-        sensor_msgs::ImageConstPtr img = m.instantiate<sensor_msgs::Image>();
-        CamPose Twc;
-        if(detector.detect(img, Twc))
-        {
-            tagpose.push_back(Twc);
-
-            EulerAngles rpy =  ToEulerAngles(Twc.qwc);
-
-            foutC << Twc.timestamp<< " ";
-            foutC.precision(10);
-            foutC << Twc.twc(0) << " "
-                  << Twc.twc(1) << " "
-                  << Twc.twc(2) << " "
-                  << Twc.qwc.x() << " "
-                  << Twc.qwc.y() << " "
-                  << Twc.qwc.z() << " "
-                  << Twc.qwc.w() << " "
-                  << rpy.roll << " "
-                  << rpy.pitch<< " "
-                  << rpy.yaw
-                  << std::endl;
-        }
-      }
-    }
-    foutC.close();
   ros::spin();
 }

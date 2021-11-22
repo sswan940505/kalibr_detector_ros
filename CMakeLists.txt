@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8.3)
-project(lasercamcal_ros)
+project(kalibr_detector)
 
 SET(CMAKE_BUILD_TYPE "Release") # Debug
 
@@ -46,7 +46,7 @@ catkin_package(
   INCLUDE_DIRS include
   INCLUDE_DIRS camera_models/include
   INCLUDE_DIRS ethz_apriltag
-  LIBRARIES lasercamcal
+  LIBRARIES kalibrs
   CATKIN_DEPENDS  image_transport roscpp rosbag sensor_msgs geometry_msgs tf cv_bridge message_runtime nodelet std_msgs
   DEPENDS Eigen OpenCV
 )
@@ -71,40 +71,17 @@ file(GLOB_RECURSE c_files
         ${PROJECT_SOURCE_DIR}/camera_models/src/*.cc
         ${PROJECT_SOURCE_DIR}/src/*.cpp
         )
-add_library(lasercamcal ${c_files})
+add_library(kalibrs ${c_files})
 
-target_link_libraries(lasercamcal
+target_link_libraries(kalibrs
         ${catkin_LIBRARIES}
         ${Eigen_LIBRARIES}
         ${OpenCV_LIBRARIES}
         ${CERES_LIBRARIES}
 )
 
-add_executable(kalibra_detect_node main/kalibratag_detector_node.cpp)
-target_link_libraries(kalibra_detect_node
+add_executable(kalibr_detect_node main/kalibratag_detector_node.cpp)
+target_link_libraries(kalibr_detect_node
         ${catkin_LIBRARIES}
-        lasercamcal
+        kalibrs
 )
-
-add_executable(lasercamcal_node main/calibr_offline.cpp)
-target_link_libraries(lasercamcal_node
-        ${catkin_LIBRARIES}
-        lasercamcal
-        )
-
-
-add_executable(simulation_lasercamcal_node main/calibr_simulation.cpp)
-target_link_libraries(simulation_lasercamcal_node
-        ${catkin_LIBRARIES}
-        lasercamcal
-        )        
-
-add_executable(showscan_node debug_code/showscan_node.cpp)
-add_dependencies(showscan_node ${catkin_EXPORTED_TARGETS})
-target_link_libraries(showscan_node
-  ${catkin_LIBRARIES}
-  ${OpenCV_LIBRARIES}
-        lasercamcal
-)
-
-#target_compile_features(kalibratag_detector_node PRIVATE cxx_range_for) # 用来设定 c++ 11

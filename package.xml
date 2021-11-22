@@ -1,10 +1,10 @@
 <?xml version="1.0"?>
 <package>
-  <name>lasercamcal_ros</name>
+  <name>kalibr_detector</name>
   <version>0.1.2</version>
-  <description>A package that provides a ROS wrapper for the Laser Camera Calibra tool C++ package</description>
+  <description>A package that provides the pose of kalibr marker</description>
 
-  <maintainer email="heyijia_2013@163.com">Yijia He</maintainer>
+  <maintainer email="sswan55@kaist.ac.kr">Seungwon Song</maintainer>
   <author>Yijia He</author>
 
   <license>BSD</license>
